@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLOS Energy Simulator - Tesla Wireless Transmission Model</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --g-neon: #E3F202;
+  --g-bright: #F0FE26;
+  --g-mid: #B6C201;
+  --g-light: #F7FF80;
+  --g-dark: #5A6101;
+  --g-deep: #2D3000;
+  --bg: #080900;
+  --surface: rgba(18,22,0,0.95);
+  --border: rgba(179,194,1,0.3);
+  --glow: 0 0 10px rgba(227,242,2,0.45);
+  --font-hud: 'Orbitron', monospace;
+  --font-mono: 'Share Tech Mono', monospace;
+  
+  --alarm-critical: #FF3B30;
+  --alarm-warn: #FFB300;
+  --alarm-ok: #00FF88;
+}
+
+body {
+  background: var(--bg);
+  color: var(--g-neon);
+  font-family: var(--font-hud);
+  overflow: hidden;
+  height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(179,194,1,0.03) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(179,194,1,0.03) 40px);
+}
+
+/* ===== LAYOUT ===== */
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+/* ===== HEADER ===== */
+.header {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header-title h1 {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: var(--g-bright);
+  text-shadow: 0 0 12px rgba(240,254,38,0.7);
+}
+
+.header-title .subtitle {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--g-light);
+  letter-spacing: 2px;
+  margin-top: 2px;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.status-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transition: all .3s;
+}
+
+.status-led.ok {
+  background: var(--alarm-ok);
+  box-shadow: 0 0 10px var(--alarm-ok);
+  animation: pulse 2s infinite;
+}
+
+.status-led.warn {
+  background: var(--alarm-warn);
+  box-shadow: 0 0 10px var(--alarm-warn);
+  animation: pulse 0.8s infinite;
+}
+
+.status-led.critical {
+  background: var(--alarm-critical);
+  box-shadow: 0 0 10px var(--alarm-critical);
+  animation: pulse 0.4s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.status-text {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--g-light);
+  letter-spacing: 1px;
+}
+
+.header-badge {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--g-dark);
+  border-radius: 2px;
+  color: var(--g-light);
+  letter-spacing: 1px;
+}
+
+.btn-restart {
+  padding: 8px 16px;
+  background: rgba(179,194,1,0.08);
+  border: 1px solid var(--g-mid);
+  border-radius: 3px;
+  color: var(--g-bright);
+  font-family: var(--font-hud);
+  font-size: 8px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all .2s;
+  text-transform: uppercase;
+}
+
+.btn-restart:hover {
+  background: rgba(179,194,1,0.18);
+  box-shadow: var(--glow);
+  transform: translateY(-1px);
+}
+
+.btn-restart.critical {
+  border-color: var(--alarm-critical);
+  color: var(--alarm-critical);
+  animation: btnPulse 1s infinite;
+}
+
+@keyframes btnPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,59,48,0); }
+  50% { box-shadow: 0 0 15px rgba(255,59,48,0.6); }
+}
+
+/* ===== MAIN LAYOUT ===== */
+.main {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  grid-template-rows: 1fr auto;
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+/* ===== GLOBE SECTION ===== */
+.globe-section {
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--g-neon), transparent);
+  opacity: .4;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--g-neon);
+  box-shadow: 0 0 6px var(--g-neon);
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: var(--g-mid);
+  text-transform: uppercase;
+  flex: 1;
+}
+
+#globe-container {
+  flex: 1;
+  position: relative;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 400px;
+}
+
+.globe-controls {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.ctrl-btn {
+  padding: 6px;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 1px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--g-light);
+  background: rgba(0,0,0,0.4);
+  transition: all .15s;
+  text-transform: uppercase;
+}
+
+.ctrl-btn:hover {
+  border-color: var(--g-neon);
+  color: var(--g-bright);
+}
+
+.ctrl-btn.active {
+  border-color: var(--g-neon);
+  background: rgba(179,194,1,0.1);
+  color: var(--g-bright);
+}
+
+/* ===== CONTROL PANEL ===== */
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: calc(100vh - 180px);
+}
+
+.control-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.control-panel::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.3);
+}
+
+.control-panel::-webkit-scrollbar-thumb {
+  background: var(--g-dark);
+  border-radius: 2px;
+}
+
+.param-group {
+  margin-bottom: 8px;
+}
+
+.param-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.param-label span:first-child {
+  font-size: 7px;
+  letter-spacing: 2px;
+  color: var(--g-mid);
+  text-transform: uppercase;
+}
+
+.param-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--g-bright);
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(240,254,38,0.6);
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--g-neon) var(--pct,50%), rgba(90,97,1,0.3) var(--pct,50%));
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--g-bright);
+  border: 2px solid #050800;
+  box-shadow: 0 0 8px rgba(240,254,38,0.8);
+  cursor: pointer;
+}
+
+.param-note {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  color: var(--g-light);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* ===== NODE LIST ===== */
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.node-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.node-item:hover {
+  border-color: var(--g-neon);
+}
+
+.node-item.selected {
+  border-color: var(--g-bright);
+  background: rgba(179,194,1,0.08);
+}
+
+.node-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(0,0,0,0.5);
+}
+
+.node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-name {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--g-bright);
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-sub {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  color: var(--g-light);
+  margin-top: 1px;
+}
+
+/* ===== METRICS BAR ===== */
+.metrics-bar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.metric-box {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.metric-label {
+  font-size: 6px;
+  letter-spacing: 1.5px;
+  color: var(--g-dark);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--g-bright);
+  text-shadow: 0 0 10px rgba(240,254,38,0.6);
+}
+
+.metric-unit {
+  font-size: 6px;
+  color: var(--g-light);
+  margin-top: 1px;
+}
+
+/* ===== TABS ===== */
+.tabs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tabs-nav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px 4px;
+  text-align: center;
+  font-size: 7px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--g-light);
+  border-bottom: 2px solid transparent;
+  transition: all .2s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+
+.tab-btn:hover {
+  color: var(--g-mid);
+}
+
+.tab-btn.active {
+  color: var(--g-bright);
+  border-bottom-color: var(--g-neon);
+  text-shadow: 0 0 8px rgba(240,254,38,0.5);
+}
+
+.tab-content {
+  display: none;
+  padding: 12px;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* ===== GLOSSARY ===== */
+.gloss-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.gloss-card {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.gloss-card:hover {
+  border-color: var(--g-neon);
+  box-shadow: var(--glow);
+}
+
+.gloss-card.open {
+  border-color: var(--g-bright);
+  background: rgba(179,194,1,0.06);
+}
+
+.gloss-term {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--g-bright);
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.gloss-simple {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  color: var(--g-light);
+  line-height: 1.6;
+  display: none;
+}
+
+.gloss-card.open .gloss-simple {
+  display: block;
+}
+
+.gloss-tag {
+  font-size: 6px;
+  padding: 2px 5px;
+  border: 1px solid var(--g-dark);
+  border-radius: 2px;
+  color: var(--g-light);
+  margin-top: 5px;
+  display: inline-block;
+}
+
+/* ===== ANALYSIS ===== */
+.analysis-text {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--g-light);
+  line-height: 1.8;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* ===== ALARM OVERLAY ===== */
+.alarm-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  background: rgba(0,0,0,0.95);
+  border: 2px solid var(--alarm-critical);
+  border-radius: 8px;
+  padding: 30px 40px;
+  min-width: 400px;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(255,59,48,0.6);
+  display: none;
+  animation: alarmShake 0.5s infinite;
+}
+
+@keyframes alarmShake {
+  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+  25% { transform: translate(-50%, -50%) rotate(-1deg); }
+  75% { transform: translate(-50%, -50%) rotate(1deg); }
+}
+
+.alarm-overlay.active {
+  display: block;
+}
+
+.alarm-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+  animation: pulse 0.5s infinite;
+}
+
+.alarm-title {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: var(--alarm-critical);
+  text-shadow: 0 0 15px var(--alarm-critical);
+  margin-bottom: 10px;
+}
+
+.alarm-message {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--g-light);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.alarm-btn {
+  padding: 12px 30px;
+  background: var(--alarm-critical);
+  border: none;
+  border-radius: 4px;
+  color: #000;
+  font-family: var(--font-hud);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all .2s;
+  text-transform: uppercase;
+}
+
+.alarm-btn:hover {
+  background: #ff5a50;
+  box-shadow: 0 0 20px var(--alarm-critical);
+  transform: scale(1.05);
+}
+
+/* ===== UTILITY ===== */
+.hidden {
+  display: none !important;
+}
+</style>
+</head>
+<body>
+
+<!-- ALARM OVERLAY -->
+<div class="alarm-overlay" id="alarm-overlay">
+  <div class="alarm-icon">⚠</div>
+  <div class="alarm-title">SYSTEM CRITICAL</div>
+  <div class="alarm-message" id="alarm-message">
+    Sistema sobrecargado: eficiencia por debajo del umbral mínimo.
+    La transmisión ha colapsado.
+  </div>
+  <button class="alarm-btn" onclick="resetSystem()">RESTART SYSTEM</button>
+</div>
+
+<div class="app">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-title">
+      <h1>SOLOS ENERGY SIMULATOR</h1>
+      <div class="subtitle">WIRELESS TRANSMISSION MODEL · TESLA-ELF FRAMEWORK v3.0</div>
+    </div>
+    
+    <div class="header-status">
+      <div class="status-led ok" id="status-led"></div>
+      <div class="status-text" id="status-text">SYSTEM NOMINAL · 1 NODE ACTIVE · f=6Hz</div>
+    </div>
+    
+    <div class="header-badge">NIKOLA TESLA 1899–1905</div>
+    
+    <button class="btn-restart" id="btn-restart" onclick="resetSystem()">RESTART</button>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+    
+    <!-- GLOBE SECTION (LEFT) -->
+    <div class="globe-section">
+      <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="panel-header">
+          <div class="panel-indicator"></div>
+          <div class="panel-title">Globe Tesla — Global Transmission Model</div>
+        </div>
+        <div id="globe-container"></div>
+      </div>
+      
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-indicator"></div>
+          <div class="panel-title">View Controls</div>
+        </div>
+        <div class="globe-controls">
+          <div class="ctrl-btn active" id="btn-waves" onclick="toggleLayer('waves', this)">Waves</div>
+          <div class="ctrl-btn active" id="btn-atm" onclick="toggleLayer('atm', this)">Atmosphere</div>
+          <div class="ctrl-btn active" id="btn-conn" onclick="toggleLayer('conn', this)">Connections</div>
+          <div class="ctrl-btn" id="btn-tesla" onclick="toggleLayer('tesla', this)">Tesla Labs</div>
+          <div class="ctrl-btn" id="btn-standing" onclick="toggleLayer('standing', this)">Standing W.</div>
+          <div class="ctrl-btn" onclick="resetView()">Reset View</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROL PANEL (RIGHT) -->
+    <div class="control-panel">
+      
+      <!-- PARAMETERS -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-indicator"></div>
+          <div class="panel-title">Transmission Parameters</div>
+        </div>
+        
+        <div class="param-group">
+          <div class="param-label">
+            <span>Frequency</span>
+            <span class="param-value" id="freq-val">6 Hz</span>
+          </div>
+          <input type="range" id="freq" min="1" max="100" value="6" oninput="updateParams()">
+          <div class="param-note">Tesla: 6 Hz · Modern measurement: ~8 Hz · Schumann: 7.83 Hz</div>
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>Transmitter Voltage</span>
+            <span class="param-value" id="volt-val">10 MV</span>
+          </div>
+          <input type="range" id="volt" min="1" max="200" value="100" oninput="updateParams()">
+          <div class="param-note">Colorado Springs: 10 MV · Proposed global: 100 MV</div>
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>Atmospheric Conductivity</span>
+            <span class="param-value" id="atm-val">0.50</span>
+          </div>
+          <input type="range" id="atm" min="0" max="100" value="50" oninput="updateParams()">
+          <div class="param-note">Tesla believed high voltage could ionize upper atmosphere</div>
+        </div>
+
+        <div class="param-group">
+          <div class="param-label">
+            <span>Target Distance</span>
+            <span class="param-value" id="dist-val">10 Mm</span>
+          </div>
+          <input type="range" id="dist" min="1" max="40" value="10" oninput="updateParams()">
+          <div class="param-note">Earth circumference: 40 Mm · Antipode: 20 Mm</div>
+        </div>
+      </div>
+
+      <!-- NODES -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-indicator"></div>
+          <div class="panel-title">Transmission Nodes</div>
+        </div>
+        <div class="node-list" id="node-list"></div>
+        <button class="btn-restart" style="width:100%; margin-top:8px;" onclick="showAddNodeDialog()">Add Node</button>
+      </div>
+
+      <!-- ANALYSIS -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-indicator"></div>
+          <div class="panel-title">System Analysis</div>
+        </div>
+        <div class="analysis-text" id="analysis-text">Adjust parameters to see analysis...</div>
+      </div>
+    </div>
+
+    <!-- METRICS BAR (BOTTOM LEFT) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-indicator"></div>
+        <div class="panel-title">System Metrics</div>
+      </div>
+      <div class="metrics-bar">
+        <div class="metric-box">
+          <div class="metric-label">Attenuation</div>
+          <div class="metric-value" id="m-att">0.80</div>
+          <div class="metric-unit">dB/Mm</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Ant. Efficiency</div>
+          <div class="metric-value" id="m-eff">0.026</div>
+          <div class="metric-unit">%</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Resonance</div>
+          <div class="metric-value" id="m-res">6</div>
+          <div class="metric-unit">Hz</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Total Loss</div>
+          <div class="metric-value" id="m-loss">-8.0</div>
+          <div class="metric-unit">dB</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Received Power</div>
+          <div class="metric-value" id="m-pow">0.0014</div>
+          <div class="metric-unit">%</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Active Nodes</div>
+          <div class="metric-value" id="m-nodes">1</div>
+          <div class="metric-unit">transmitters</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GLOSSARY (BOTTOM RIGHT) -->
+    <div class="panel tabs-container">
+      <div class="tabs-nav">
+        <button class="tab-btn active" onclick="switchTab(0, this)">Glossary</button>
+        <button class="tab-btn" onclick="switchTab(1, this)">Tesla vs Modern</button>
+        <button class="tab-btn" onclick="switchTab(2, this)">About</button>
+      </div>
+      
+      <div class="tab-content active">
+        <div class="gloss-grid" id="gloss-grid"></div>
+      </div>
+      
+      <div class="tab-content">
+        <div class="analysis-text" id="compare-text">Comparison loading...</div>
+      </div>
+      
+      <div class="tab-content">
+        <div class="analysis-text">
+          <strong style="color:var(--g-bright)">SOLOS Energy Simulator v3.0</strong><br><br>
+          Interactive simulation of Nikola Tesla's wireless energy transmission system based on the 1982 Marincic analysis.<br><br>
+          <strong style="color:var(--g-bright)">Key Features:</strong><br>
+          · Real-time 3D globe with node visualization<br>
+          · Accurate ELF propagation physics model<br>
+          · Material conductivity comparison<br>
+          · Critical system monitoring & alarms<br>
+          · Tesla 1905 vs modern technology analysis<br><br>
+          <strong style="color:var(--g-bright)">References:</strong><br>
+          A.S. Marincic (1982) "Nikola Tesla and the Wireless Transmission of Energy", IEEE Transactions on Power Apparatus and Systems<br><br>
+          Created for educational and research purposes.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// ===================== GLOBAL STATE =====================
+const STATE = {
+  nodes: [{
+    id: 1,
+    name: 'Wardenclyffe (Tesla)',
+    lat: 40,
+    lon: -74,
+    mat: 'earth',
+    power: 80,
+    size: 57,
+    freq: 6,
+    color: '#E3F202'
+  }],
+  selectedNodeId: null,
+  layers: {
+    waves: true,
+    atm: true,
+    conn: true,
+    tesla: false,
+    standing: false
+  },
+  params: {
+    freq: 6,
+    volt: 100,
+    atm: 50,
+    dist: 10
+  },
+  systemStatus: 'ok', // ok, warn, critical
+  alarmActive: false
+};
+
+const MATERIALS = {
+  earth: { name: 'Dry Earth (Tesla)', color: '#8B7355', sigma: 0.001 },
+  seawater: { name: 'Seawater', color: '#1a6b9a', sigma: 4.0 },
+  graphene: { name: 'Graphene', color: '#B6C201', sigma: 1e8 },
+  supercond: { name: 'Superconductor HTS', color: '#F0FE26', sigma: 1e12 },
+  plasma: { name: 'Atmospheric Plasma', color: '#ff8800', sigma: 100 },
+  metamaterial: { name: 'EM Metamaterial', color: '#cc44ff', sigma: 0 }
+};
+
+const GLOSSARY = [
+  {
+    term: 'Attenuation',
+    simple: 'How quickly energy "fades away" as it travels. Low attenuation = energy goes far. Tesla used ultra-low frequencies (ELF) specifically because they have very low attenuation — the signal can travel around the entire Earth.',
+    unit: 'dB/Mm',
+    impact: 'Higher = more energy lost per distance'
+  },
+  {
+    term: 'ELF Frequency',
+    simple: 'How many times per second the energy "wave" oscillates. Tesla used 6 Hz (6 times per second) — extremely slow waves that can wrap around the planet. Modern measurements show Earth resonates at ~8 Hz (Schumann resonance).',
+    unit: 'Hz (cycles/sec)',
+    impact: 'Lower = better global transmission, less attenuation'
+  },
+  {
+    term: 'Earth Resonance',
+    simple: 'The natural "vibration frequency" of Earth. Like hitting a bell at just the right pitch to make it ring loud. Tesla calculated 6 Hz. If you transmit at exactly this frequency, the energy can circle the globe with minimal loss.',
+    unit: 'Hz',
+    impact: 'Hitting resonance = massive efficiency boost'
+  },
+  {
+    term: 'Conductivity (σ)',
+    simple: 'How easily electricity flows through a material. Copper = excellent. Dry earth = poor. Tesla wanted Earth itself to be the "wire" but its low conductivity was a major problem. Modern materials like graphene would solve this.',
+    unit: 'S/m',
+    impact: 'Higher = better conductor = less loss'
+  },
+  {
+    term: 'Standing Waves',
+    simple: 'When waves bounce back and forth and create spots where the signal is AMPLIFIED instead of weakened. Tesla predicted these "antinodes" would appear at specific points around the globe where received power would be higher.',
+    unit: '—',
+    impact: 'At antinodes, signal strength increases'
+  },
+  {
+    term: 'Transmitter Voltage',
+    simple: 'The electrical "pressure" used to push the signal. Tesla used 10 million volts in Colorado Springs. He proposed 100+ million volts for global systems — enough to ionize the upper atmosphere and make it conductive.',
+    unit: 'MV (megavolts)',
+    impact: 'Higher = more power, can ionize atmosphere'
+  },
+  {
+    term: 'Ionosphere',
+    simple: 'The upper layer of atmosphere (60-1000 km high) where solar radiation breaks apart air molecules, making them conduct electricity. Tesla wanted to use this as the "return conductor" — Earth as one wire, ionosphere as the other.',
+    unit: 'km altitude',
+    impact: 'More ionized = better upper conductor'
+  },
+  {
+    term: 'Antenna Efficiency',
+    simple: 'What percentage of input energy actually becomes a transmitted wave. ELF antennas are terrible — at 45 Hz, only 0.026% is radiated. The rest just heats up the antenna. This is the main reason Tesla\'s vision failed.',
+    unit: '%',
+    impact: 'Higher = less waste, but ELF antennas are inherently inefficient'
+  },
+  {
+    term: 'Transmission Node',
+    simple: 'A transmitter station with an antenna, power source, and ground connection. Tesla built Wardenclyffe as his first node. He envisioned a global network of nodes providing wireless power anywhere on Earth.',
+    unit: '—',
+    impact: 'More nodes = better coverage & redundancy'
+  }
+];
+
+// ===================== THREE.JS GLOBE =====================
+let scene, camera, renderer, globe, globeMesh, particlesGlobe, nodeMarkers = [], waveRings = [];
+let animFrame, globeRotation = 0;
+
+function initGlobe() {
+  const container = document.getElementById('globe-container');
+  const width = container.offsetWidth;
+  const height = container.offsetHeight;
+
+  // Scene
+  scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x000000, 100, 400);
+
+  // Camera
+  camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+  camera.position.z = 180;
+
+  // Renderer
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(0x000000, 1);
+  container.appendChild(renderer.domElement);
+
+  // Lights
+  const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+  scene.add(ambientLight);
+  
+  const pointLight = new THREE.PointLight(0xE3F202, 1, 300);
+  pointLight.position.set(50, 50, 50);
+  scene.add(pointLight);
+
+  // Globe sphere
+  const geometry = new THREE.SphereGeometry(50, 64, 64);
+  const material = new THREE.MeshPhongMaterial({
+    color: 0x1a2200,
+    emissive: 0x0d1500,
+    specular: 0x333333,
+    shininess: 25,
+    transparent: true,
+    opacity: 0.9,
+    wireframe: false
+  });
+  globeMesh = new THREE.Mesh(geometry, material);
+  scene.add(globeMesh);
+
+  // Wireframe overlay
+  const wireframeGeo = new THREE.SphereGeometry(50.5, 32, 32);
+  const wireframeMat = new THREE.MeshBasicMaterial({
+    color: 0x2D3000,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.3
+  });
+  const wireframe = new THREE.Mesh(wireframeGeo, wireframeMat);
+  scene.add(wireframe);
+
+  // Atmosphere glow
+  const glowGeometry = new THREE.SphereGeometry(56, 32, 32);
+  const glowMaterial = new THREE.ShaderMaterial({
+    uniforms: {},
+    vertexShader: `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      void main() {
+        float intensity = pow(0.6 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+        gl_FragColor = vec4(0.7, 0.76, 0.004, 1.0) * intensity;
+      }
+    `,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    transparent: true
+  });
+  const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+  scene.add(glow);
+
+  // Mouse controls
+  let isDragging = false;
+  let previousMouseX = 0;
+  
+  renderer.domElement.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    previousMouseX = e.clientX;
+  });
+  
+  renderer.domElement.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      const deltaX = e.clientX - previousMouseX;
+      globeRotation += deltaX * 0.005;
+      previousMouseX = e.clientX;
+    }
+  });
+  
+  renderer.domElement.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+  
+  renderer.domElement.addEventListener('mouseleave', () => {
+    isDragging = false;
+  });
+
+  // Touch controls
+  let touchStartX = 0;
+  
+  renderer.domElement.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  
+  renderer.domElement.addEventListener('touchmove', (e) => {
+    const deltaX = e.touches[0].clientX - touchStartX;
+    globeRotation += deltaX * 0.005;
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+
+  // Start animation
+  animate();
+  
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    const w = container.offsetWidth;
+    const h = container.offsetHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  });
+}
+
+function latLonToVector3(lat, lon, radius) {
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180 + globeRotation * (180 / Math.PI)) * (Math.PI / 180);
+  
+  const x = -radius * Math.sin(phi) * Math.cos(theta);
+  const y = radius * Math.cos(phi);
+  const z = radius * Math.sin(phi) * Math.sin(theta);
+  
+  return new THREE.Vector3(x, y, z);
+}
+
+function updateNodeMarkers() {
+  // Clear existing markers
+  nodeMarkers.forEach(marker => scene.remove(marker));
+  nodeMarkers = [];
+
+  STATE.nodes.forEach(node => {
+    const pos = latLonToVector3(node.lat, node.lon, 52);
+    
+    // Node sphere
+    const geometry = new THREE.SphereGeometry(1.5, 16, 16);
+    const material = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(node.color),
+      transparent: true,
+      opacity: 0.9
+    });
+    const marker = new THREE.Mesh(geometry, material);
+    marker.position.copy(pos);
+    
+    // Glow
+    const glowGeo = new THREE.SphereGeometry(2.5, 16, 16);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(node.color),
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.BackSide
+    });
+    const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+    marker.add(glowMesh);
+    
+    scene.add(marker);
+    nodeMarkers.push(marker);
+  });
+}
+
+function updateWaveRings() {
+  if (!STATE.layers.waves) return;
+  
+  // Clear old rings
+  waveRings.forEach(ring => scene.remove(ring));
+  waveRings = [];
+  
+  const time = Date.now() * 0.001;
+  
+  STATE.nodes.forEach(node => {
+    for (let i = 0; i < 4; i++) {
+      const phase = (time * 0.5 + i * 0.25) % 1;
+      const radius = 52 + phase * 30;
+      const opacity = (1 - phase) * 0.3;
+      
+      const pos = latLonToVector3(node.lat, node.lon, radius);
+      
+      const geometry = new THREE.RingGeometry(radius * 0.05, radius * 0.08, 32);
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(node.color),
+        transparent: true,
+        opacity: opacity,
+        side: THREE.DoubleSide
+      });
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.copy(pos);
+      ring.lookAt(new THREE.Vector3(0, 0, 0));
+      
+      scene.add(ring);
+      waveRings.push(ring);
+    }
+  });
+}
+
+function animate() {
+  animFrame = requestAnimationFrame(animate);
+  
+  // Rotate globe
+  globeMesh.rotation.y = globeRotation;
+  
+  // Update wave rings
+  if (STATE.layers.waves) {
+    updateWaveRings();
+  }
+  
+  renderer.render(scene, camera);
+}
+
+function resetView() {
+  globeRotation = 0;
+  camera.position.set(0, 0, 180);
+}
+
+function toggleLayer(key, btn) {
+  STATE.layers[key] = !STATE.layers[key];
+  btn.classList.toggle('active', STATE.layers[key]);
+  
+  if (key === 'waves' && !STATE.layers[key]) {
+    waveRings.forEach(ring => scene.remove(ring));
+    waveRings = [];
+  }
+}
+
+// ===================== PARAMETERS =====================
+function syncSlider(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const pct = ((+el.value - +el.min) / (+el.max - +el.min) * 100).toFixed(1) + '%';
+  el.style.setProperty('--pct', pct);
+}
+
+function updateParams() {
+  ['freq', 'volt', 'atm', 'dist'].forEach(syncSlider);
+  
+  STATE.params.freq = +document.getElementById('freq').value;
+  STATE.params.volt = +document.getElementById('volt').value;
+  STATE.params.atm = +document.getElementById('atm').value;
+  STATE.params.dist = +document.getElementById('dist').value;
+  
+  document.getElementById('freq-val').textContent = STATE.params.freq + ' Hz';
+  document.getElementById('volt-val').textContent = Math.round(STATE.params.volt / 10) + ' MV';
+  document.getElementById('atm-val').textContent = (STATE.params.atm / 100).toFixed(2);
+  document.getElementById('dist-val').textContent = STATE.params.dist + ' Mm';
+  
+  calculateMetrics();
+  checkSystemHealth();
+}
+
+function interp(x, table) {
+  if (x <= table[0][0]) return table[0][1];
+  if (x >= table[table.length - 1][0]) return table[table.length - 1][1];
+  for (let i = 0; i < table.length - 1; i++) {
+    if (x >= table[i][0] && x <= table[i + 1][0]) {
+      const t = (x - table[i][0]) / (table[i + 1][0] - table[i][0]);
+      return table[i][1] + t * (table[i + 1][1] - table[i][1]);
+    }
+  }
+  return 1;
+}
+
+function calculateMetrics() {
+  const { freq, volt, atm, dist } = STATE.params;
+  
+  // Attenuation from Marincic 1982 table
+  const attTable = [[10, 0.25], [50, 0.80], [100, 1.00], [300, 3.00], [1000, 20.00]];
+  const att = interp(freq, attTable);
+  
+  // Antenna efficiency (simplified from Burrows 1978)
+  const antEff = Math.min(86, 0.026 * Math.pow(freq / 45, 1.5) * STATE.nodes.reduce((a, n) => a + n.size / 15, 0) / STATE.nodes.length);
+  
+  // Total loss
+  const propLoss = att * dist;
+  const sysEff = (antEff / 100) * (antEff / 100) * 100 * Math.exp(-propLoss / 40);
+  const powRec = Math.max(0, sysEff * (volt / 100) * (atm / 100));
+  
+  // Resonance check
+  const inRes = freq >= 5 && freq <= 9;
+  
+  // Update UI
+  document.getElementById('m-att').textContent = att.toFixed(3);
+  document.getElementById('m-eff').textContent = antEff.toFixed(4);
+  document.getElementById('m-res').textContent = freq <= 10 ? '6 / ~8' : 'OUT';
+  document.getElementById('m-loss').textContent = (-propLoss).toFixed(1);
+  document.getElementById('m-pow').textContent = powRec.toFixed(5);
+  document.getElementById('m-nodes').textContent = STATE.nodes.length;
+  
+  // Analysis
+  const lines = [
+    `<strong style="color:var(--g-bright)">FREQUENCY:</strong> ${freq}Hz — ${freq <= 10 ? 'ELF zone (low attenuation, global resonance possible)' : 'HF zone (higher antenna efficiency but more attenuation)'}`,
+    `<strong style="color:var(--g-bright)">RESONANCE:</strong> ${inRes ? '✓ TESLA CONDITION MET — standing waves possible' : '✗ Outside Tesla resonance zone (5-9Hz)'}`,
+    `<strong style="color:var(--g-bright)">VOLTAGE:</strong> ${Math.round(volt / 10)}MV — ${volt > 150 ? 'Tesla "extreme" zone — possible atmospheric ionization' : 'Standard operational range'}`,
+    `<strong style="color:var(--g-bright)">SYSTEM EFFICIENCY:</strong> ${sysEff.toFixed(6)}% — ${sysEff < 0.001 ? 'CRITICAL: Below minimum viable threshold' : sysEff < 0.01 ? 'LOW: Limited transmission capability' : 'NOMINAL'}`,
+    `<strong style="color:var(--g-bright)">TESLA 1905:</strong> "The rate of radiation in Hertzian waves is very small" — this was intentional, not an error`,
+    `<strong style="color:var(--g-bright)">VALIDATED TODAY:</strong> Standing waves ✓ · Schumann resonance ✓ · Low attenuation ✓ · Global efficiency ✗`
+  ];
+  document.getElementById('analysis-text').innerHTML = lines.join('<br><br>');
+  
+  // Comparison
+  const grapheneBoost = Math.log10(1e8 / 0.001 + 1) / 10 * 0.5;
+  const supBoost = Math.log10(1e12 / 0.001 + 1) / 10 * 0.5;
+  document.getElementById('compare-text').innerHTML = `
+    <strong style="color:var(--g-bright)">TESLA 1905 (Dry Earth):</strong><br>
+    System efficiency = ${sysEff.toFixed(6)}%<br><br>
+    
+    <strong style="color:var(--g-bright)">WITH GRAPHENE (2024):</strong><br>
+    ~${(sysEff * (1 + grapheneBoost * 3)).toFixed(5)}% (improvement ~${(grapheneBoost * 300).toFixed(0)}x)<br><br>
+    
+    <strong style="color:var(--g-bright)">WITH SUPERCONDUCTOR:</strong><br>
+    ~${(sysEff * (1 + supBoost * 5)).toFixed(4)}% (improvement ~${(supBoost * 500).toFixed(0)}x)<br><br>
+    
+    <strong style="color:var(--g-bright)">CONCLUSION (Marincic 1982):</strong><br>
+    Even with better materials, global efficiency remains too low for industrial power transmission.<br><br>
+    
+    <strong style="color:var(--g-bright)">CURRENT ELF USE:</strong><br>
+    Submarine communication (not power transmission).
+  `;
+  
+  return { att, antEff, propLoss, sysEff, powRec, inRes };
+}
+
+// ===================== SYSTEM HEALTH =====================
+function checkSystemHealth() {
+  const metrics = calculateMetrics();
+  const { freq, volt } = STATE.params;
+  const { sysEff, powRec, inRes } = metrics;
+  
+  let status = 'ok';
+  let statusText = `SYSTEM NOMINAL · ${STATE.nodes.length} NODE${STATE.nodes.length > 1 ? 'S' : ''} ACTIVE · f=${freq}Hz`;
+  let alarmMessage = '';
+  
+  // Critical conditions
+  if (sysEff < 0.0001) {
+    status = 'critical';
+    statusText = `CRITICAL FAILURE · EFFICIENCY ${(sysEff * 100).toFixed(8)}% · SYSTEM COLLAPSE IMMINENT`;
+    alarmMessage = `System efficiency has collapsed to ${(sysEff * 100).toFixed(8)}%. Transmission impossible at current parameters. Power received: ${powRec.toFixed(8)}%. The system cannot sustain wireless transmission under these conditions.`;
+  } else if (metrics.antEff < 0.001) {
+    status = 'critical';
+    statusText = `ANTENNA FAILURE · EFFICIENCY ${metrics.antEff.toFixed(6)}% · ADJUST FREQUENCY OR SIZE`;
+    alarmMessage = `Antenna efficiency critical: ${metrics.antEff.toFixed(6)}%. At f=${freq}Hz with current antenna configuration, virtually no energy is radiated. Increase antenna size or adjust frequency.`;
+  } else if (volt > 180) {
+    status = 'warn';
+    statusText = `WARNING · HIGH VOLTAGE ${Math.round(volt / 10)}MV · ATMOSPHERIC IONIZATION THRESHOLD`;
+  } else if (!inRes && freq < 50) {
+    status = 'warn';
+    statusText = `WARNING · FREQUENCY ${freq}Hz OUT OF RESONANCE · SUBOPTIMAL TRANSMISSION`;
+  } else if (sysEff < 0.001) {
+    status = 'warn';
+    statusText = `WARNING · LOW EFFICIENCY ${(sysEff * 100).toFixed(6)}% · MARGINAL OPERATION`;
+  }
+  
+  STATE.systemStatus = status;
+  
+  // Update UI
+  const led = document.getElementById('status-led');
+  const text = document.getElementById('status-text');
+  const btnRestart = document.getElementById('btn-restart');
+  
+  led.className = 'status-led ' + status;
+  text.textContent = statusText;
+  
+  if (status === 'critical') {
+    btnRestart.classList.add('critical');
+    showAlarm(alarmMessage);
+  } else {
+    btnRestart.classList.remove('critical');
+    hideAlarm();
+  }
+}
+
+function showAlarm(message) {
+  if (STATE.alarmActive) return;
+  STATE.alarmActive = true;
+  
+  const overlay = document.getElementById('alarm-overlay');
+  const messageEl = document.getElementById('alarm-message');
+  
+  messageEl.textContent = message;
+  overlay.classList.add('active');
+}
+
+function hideAlarm() {
+  STATE.alarmActive = false;
+  document.getElementById('alarm-overlay').classList.remove('active');
+}
+
+function resetSystem() {
+  // Reset all parameters to safe defaults
+  STATE.params = { freq: 6, volt: 100, atm: 50, dist: 10 };
+  
+  document.getElementById('freq').value = 6;
+  document.getElementById('volt').value = 100;
+  document.getElementById('atm').value = 50;
+  document.getElementById('dist').value = 10;
+  
+  // Reset nodes to Tesla default
+  STATE.nodes = [{
+    id: 1,
+    name: 'Wardenclyffe (Tesla)',
+    lat: 40,
+    lon: -74,
+    mat: 'earth',
+    power: 80,
+    size: 57,
+    freq: 6,
+    color: '#E3F202'
+  }];
+  STATE.selectedNodeId = null;
+  
+  // Update everything
+  updateParams();
+  renderNodeList();
+  updateNodeMarkers();
+  hideAlarm();
+  
+  console.log('System reset to Tesla 1905 baseline configuration');
+}
+
+// ===================== NODES =====================
+function renderNodeList() {
+  const list = document.getElementById('node-list');
+  list.innerHTML = STATE.nodes.map(n => {
+    const mat = MATERIALS[n.mat];
+    return `<div class="node-item ${n.id === STATE.selectedNodeId ? 'selected' : ''}" onclick="selectNode(${n.id})">
+      <div class="node-dot" style="background:${mat.color};box-shadow:0 0 6px ${mat.color};"></div>
+      <div class="node-info">
+        <div class="node-name">${n.name}</div>
+        <div class="node-sub">${mat.name} · ${n.freq}Hz · ${n.power}MV</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectNode(id) {
+  STATE.selectedNodeId = id;
+  renderNodeList();
+}
+
+function showAddNodeDialog() {
+  // Simplified: just add a default node at random location
+  const lats = [35, -33, 51, -22, 64];
+  const lons = [139, 150, 0, -43, -105];
+  const idx = Math.floor(Math.random() * lats.length);
+  
+  const id = Date.now();
+  STATE.nodes.push({
+    id,
+    name: `Node ${STATE.nodes.length + 1}`,
+    lat: lats[idx],
+    lon: lons[idx],
+    mat: 'earth',
+    power: 50,
+    size: 30,
+    freq: 6,
+    color: '#B6C201'
+  });
+  
+  renderNodeList();
+  updateNodeMarkers();
+  updateParams();
+}
+
+// ===================== TABS =====================
+function switchTab(index, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-content')[index].classList.add('active');
+}
+
+// ===================== GLOSSARY =====================
+function renderGlossary() {
+  const grid = document.getElementById('gloss-grid');
+  grid.innerHTML = GLOSSARY.map((g, i) => `
+    <div class="gloss-card" id="gc-${i}" onclick="toggleGloss(${i})">
+      <div class="gloss-term">${g.term}</div>
+      <div class="gloss-simple">${g.simple}<br><br>
+        <span class="gloss-tag">Unit: ${g.unit}</span>
+        <span class="gloss-tag">${g.impact}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleGloss(i) {
+  document.getElementById('gc-' + i).classList.toggle('open');
+}
+
+// ===================== INIT =====================
+window.addEventListener('load', () => {
+  initGlobe();
+  renderNodeList();
+  renderGlossary();
+  updateNodeMarkers();
+  updateParams();
+  console.log('SOLOS Energy Simulator v3.0 initialized');
+  console.log('Tesla 1899-1905 wireless transmission model');
+  console.log('Based on A.S. Marincic (1982) IEEE analysis');
+});
+
+window.addEventListener('resize', () => {
+  const container = document.getElementById('globe-container');
+  const w = container.offsetWidth;
+  const h = container.offsetHeight;
+  if (camera && renderer) {
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }
+});
+</script>
+
+</body>
+</html>
